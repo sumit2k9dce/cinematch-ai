@@ -1,50 +1,126 @@
-<div align="center">
+# 🎬 CineMatch
 
-# 🍿 CineMatch.ai
-**Semantic "Vibe-Based" Movie Discovery Engine**
+Semantic film discovery. Describe a *vibe* — "a rain-soaked neo-noir where the detective is the real mystery" — and get the films that feel like it, ranked by semantic similarity, enriched with posters, IMDb / Rotten Tomatoes / Metacritic scores, trailers, and where-to-watch.
 
-[![Live Demo](https://img.shields.io/badge/Demo-Live_Now-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://cinematch-ai-portfolio.streamlit.app/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
-[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-
-*Find movies based on complex moods, lighting, and pacing, rather than rigid genres.*
+Not genre filters. Not keyword matching. Actual meaning, via sentence embeddings.
 
 ---
 
-![CineMatch Hero Image](assets/hero-screenshot.png)
-*> "A neon-drenched cyberpunk detective story with heavy existential dread."*
+## How it works
 
-</div>
+```
+        ┌─────────────┐      embeddings        ┌──────────────┐
+ vibe → │  React (UI) │ ───────────────────→   │ FastAPI (API)│
+        └─────────────┘   POST /search         └──────┬───────┘
+                                                       │
+                          ┌────────────────────────────┼───────────────┐
+                          │                             │               │
+                  all-MiniLM-L6-v2              TMDB API          OMDb API
+               (cosine similarity over      posters, trailers,   IMDb / RT /
+                4,799 movie vectors)         where-to-watch       Metacritic
+```
 
-## 📖 The Vision
+- **Semantic search** runs locally (no paid vector DB). Embeddings are precomputed once.
+- **Enrichment** (posters, ratings, trailers, where-to-watch) is fetched live for the top 5 only, so we stay well under OMDb's 1,000/day free limit.
+- **Graceful degradation:** if TMDB or OMDb is down, you still get semantic matches with whatever data is available. Nothing crashes.
 
-Traditional streaming discovery relies on rigid, boolean categorical filtering (e.g., `Genre = "Sci-Fi" AND Year > 2010`). This architecture fails to capture highly nuanced human moods, atmospheric cravings, or specific artistic aesthetics ("vibes").
+---
 
-**CineMatch.ai** completely bypasses keyword matching. It allows users to submit completely unedited, hyper-specific natural language queries describing their exact emotional and visual appetite. The engine maps this unstructured text to a mathematically compressed vector space to find the closest semantic matches across a database of 5,000+ films.
+## Project layout
 
-## 🛠️ Tech Stack
+```
+cinematch/
+├── app.py                 # FastAPI backend (/search, /health, /examples)
+├── build_index.py         # One-time: builds embeddings from TMDB dataset
+├── config.py              # All backend settings
+├── core/
+│   ├── search.py          # Vectorized semantic search engine
+│   └── enrich.py          # Resilient TMDB + OMDb enrichment
+├── cleaned_movies.csv     # Movie metadata WITH real TMDB IDs
+├── movie_embeddings.npy   # Precomputed vectors (you generate this once)
+├── tmdb_5000_movies.csv   # Source dataset
+├── requirements.txt
+├── render.yaml            # One-click Render deploy
+└── frontend/              # React + Vite app
+    ├── src/
+    │   ├── App.jsx        # Main app, all the resilience logic
+    │   ├── MovieCard.jsx  # Rich result card
+    │   ├── ChaiButton.jsx # UPI "buy me a chai" support
+    │   ├── config.js      # API URL + UPI ID
+    │   └── styles.css     # "Projector booth" noir design system
+    └── vercel.json
+```
 
-CineMatch is built entirely on open-source, zero-cost infrastructure.
+---
 
-| Category | Technology | Purpose |
-| :--- | :--- | :--- |
-| **Frontend UI** | ![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat-square&logo=Streamlit&logoColor=white) | Rapid prototyping and reactive UI handling. |
-| **NLP & Vectors** | ![Hugging Face](https://img.shields.io/badge/Hugging%20Face-F9AB00?style=flat-square&logo=huggingface&logoColor=white) ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white) | `all-MiniLM-L6-v2` via `sentence-transformers` for embedding generation. |
-| **Data Engine** | ![NumPy](https://img.shields.io/badge/NumPy-013243?style=flat-square&logo=numpy&logoColor=white) ![Pandas](https://img.shields.io/badge/Pandas-150458?style=flat-square&logo=pandas&logoColor=white) | High-speed Cosine Similarity matrix calculations in RAM. |
-| **Hosting** | ![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black) | Streamlit Community Cloud (1GB RAM Container). |
+## Run locally
 
-## 🏗️ System Architecture
+### 1. Build the search index (once, ~2 min)
 
-This project was intentionally engineered to operate at **$0 cloud compute cost**, completely bypassing paid APIs (like OpenAI) and expensive managed vector databases (like Pinecone).
+```bash
+pip install -r requirements.txt
+python build_index.py          # creates cleaned_movies.csv + movie_embeddings.npy
+```
 
-```text
-[User Prompt: "Lonely midnight drive"] 
-          │
-          ▼
-[Hugging Face: all-MiniLM-L6-v2] ──► (Generates 384-dimensional Vector)
-          │
-          ▼
-[Pre-computed NumPy Vector Index] ◄── (5,000 TMDB Movie Vectors)
-          │
-          ▼
-[Cosine Similarity Calculation] ──► (Yields Top 5 Matches in < 0.5s)
+### 2. Start the backend
+
+```bash
+export TMDB_API_KEY=your_key
+export OMDB_API_KEY=your_key
+uvicorn app:app --reload --port 8000
+```
+
+Check it: open http://localhost:8000/health → should say `"ready": true`.
+
+### 3. Start the frontend
+
+```bash
+cd frontend
+npm install
+echo "VITE_API_URL=http://localhost:8000" > .env
+npm run dev
+```
+
+Open http://localhost:5173.
+
+---
+
+## Deploy (all free)
+
+### Backend → Render
+
+1. Push this repo to GitHub.
+2. On [render.com](https://render.com): **New → Blueprint** → pick your repo (it reads `render.yaml`).
+3. Set env vars in the Render dashboard: `TMDB_API_KEY`, `OMDB_API_KEY`, and `FRONTEND_ORIGIN` (your Vercel URL, added after step below).
+4. Deploy. Note your backend URL, e.g. `https://cinematch-api.onrender.com`.
+
+> Render's free tier sleeps after 15 min idle. The frontend handles this with a "waking up" banner and auto-retry, so the first search after a nap just takes ~30s.
+
+### Frontend → Vercel
+
+1. On [vercel.com](https://vercel.com): **New Project** → pick your repo → set **Root Directory** to `frontend`.
+2. Add env var `VITE_API_URL` = your Render backend URL.
+3. Deploy. Copy the Vercel URL back into Render's `FRONTEND_ORIGIN`.
+
+Done.
+
+---
+
+## Free API limits
+
+| Service | Free limit | We use |
+|---|---|---|
+| TMDB | ~50 req/sec, no daily cap | 1 call per result (top 5) |
+| OMDb | 1,000 req/day | 1 call per result (top 5) |
+
+At 5 enrichments per search, OMDb's 1,000/day covers ~200 searches/day. Plenty for a portfolio demo. To scale, cache enrichment results (24h) or upgrade OMDb.
+
+---
+
+## Support
+
+If CineMatch helped you, there's a **Buy me a chai ☕** button (UPI). Zero fees, zero middleman.
+
+---
+
+*This product uses the TMDB and OMDb APIs but is not endorsed or certified by either. Movie data © their respective owners.*

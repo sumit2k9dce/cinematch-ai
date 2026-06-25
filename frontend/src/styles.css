@@ -1,0 +1,342 @@
+/* CineMatch — "projector booth" noir.
+   Palette: ink black, tungsten amber (projector bulb), bone white, muted slate.
+   Type: Bebas Neue (marquee display), Fraunces (editorial), Inter (body). */
+
+:root {
+  --ink: #0c0a09;          /* near-black background */
+  --ink-soft: #16130f;     /* raised surfaces */
+  --ink-card: #1c1814;     /* cards */
+  --amber: #f5a623;        /* tungsten/projector bulb */
+  --amber-dim: #c47f17;
+  --bone: #f4efe6;         /* primary text */
+  --slate: #9a8f80;        /* secondary text */
+  --slate-dim: #6b6256;    /* tertiary */
+  --line: #2a241e;         /* hairline borders */
+  --good: #6ee7a8;
+
+  --shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.7);
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--ink);
+  color: var(--bone);
+  font-family: "Inter", system-ui, sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  /* faint film-grain vignette */
+  background-image: radial-gradient(ellipse at 50% -10%, rgba(245, 166, 35, 0.06), transparent 55%);
+  min-height: 100vh;
+}
+
+.wrap { max-width: 1000px; margin: 0 auto; padding: 0 20px; }
+
+/* ---------- Header / Hero ---------- */
+.hero {
+  text-align: center;
+  padding: 64px 0 36px;
+}
+.eyebrow {
+  font-family: "Inter", sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--amber);
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+.title {
+  font-family: "Bebas Neue", sans-serif;
+  font-size: clamp(56px, 12vw, 132px);
+  line-height: 0.92;
+  letter-spacing: 0.01em;
+  color: var(--bone);
+}
+.title .dot { color: var(--amber); }
+.subtitle {
+  font-family: "Fraunces", serif;
+  font-size: clamp(16px, 2.4vw, 22px);
+  font-weight: 400;
+  font-style: italic;
+  color: var(--slate);
+  margin-top: 14px;
+  max-width: 540px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ---------- Search (the signature: a title card) ---------- */
+.searchcard {
+  background: var(--ink-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px;
+  box-shadow: var(--shadow);
+  margin-top: 36px;
+  position: relative;
+}
+.searchcard::before {
+  /* sprocket-hole strip down the left edge — filmstrip cue */
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 0;
+}
+.search-row { display: flex; gap: 8px; align-items: stretch; }
+textarea.vibe {
+  flex: 1;
+  background: transparent;
+  border: none;
+  resize: none;
+  color: var(--bone);
+  font-family: "Inter", sans-serif;
+  font-size: 17px;
+  padding: 16px;
+  min-height: 58px;
+  max-height: 160px;
+}
+textarea.vibe::placeholder { color: var(--slate-dim); }
+textarea.vibe:focus { outline: none; }
+
+.go {
+  font-family: "Bebas Neue", sans-serif;
+  font-size: 22px;
+  letter-spacing: 0.05em;
+  background: var(--amber);
+  color: var(--ink);
+  border: none;
+  border-radius: 10px;
+  padding: 0 28px;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.2s ease;
+  align-self: stretch;
+  min-width: 120px;
+}
+.go:hover:not(:disabled) { background: #ffb838; transform: translateY(-1px); }
+.go:active:not(:disabled) { transform: translateY(0); }
+.go:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ---------- Example chips ---------- */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; justify-content: center; }
+.chip {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--slate);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: "Inter", sans-serif;
+}
+.chip:hover { border-color: var(--amber-dim); color: var(--bone); }
+
+/* ---------- Region selector ---------- */
+.controls {
+  display: flex; justify-content: center; align-items: center; gap: 10px;
+  margin-top: 16px; color: var(--slate); font-size: 13px;
+}
+.controls select {
+  background: var(--ink-soft);
+  color: var(--bone);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: "Inter", sans-serif;
+  cursor: pointer;
+}
+
+/* ---------- Results ---------- */
+.results { margin: 40px 0 20px; display: flex; flex-direction: column; gap: 20px; }
+
+.card {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 18px;
+  background: var(--ink-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+  animation: rise 0.4s ease both;
+}
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+.poster {
+  width: 140px; height: 210px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--ink-soft);
+}
+.poster.placeholder {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--slate-dim); font-size: 11px; text-align: center; padding: 10px;
+  font-family: "Bebas Neue"; letter-spacing: 0.1em;
+}
+
+.card-body { min-width: 0; }
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.movie-title {
+  font-family: "Fraunces", serif;
+  font-weight: 600;
+  font-size: 24px;
+  color: var(--bone);
+  line-height: 1.15;
+}
+.movie-year { color: var(--slate); font-weight: 400; font-size: 0.7em; }
+
+.match {
+  font-family: "Bebas Neue", sans-serif;
+  font-size: 30px;
+  color: var(--amber);
+  line-height: 1;
+  white-space: nowrap;
+}
+.match small { display: block; font-size: 10px; letter-spacing: 0.2em; color: var(--slate-dim); font-family: "Inter"; }
+
+.meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.tag {
+  font-size: 11px;
+  border: 1px solid var(--line);
+  color: var(--slate);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+
+.ratings { display: flex; flex-wrap: wrap; gap: 14px; margin: 12px 0; align-items: center; }
+.rating { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.rating .src { font-size: 10px; letter-spacing: 0.1em; color: var(--slate-dim); text-transform: uppercase; }
+.rating .val { font-weight: 600; color: var(--bone); }
+.rating .val.rt { color: #fa5b3d; }
+.rating .val.imdb { color: #f5c518; }
+.rating .val.meta { color: #66cc33; }
+
+.overview { color: var(--slate); font-size: 14.5px; margin: 10px 0 14px; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.btn {
+  font-size: 13px;
+  border-radius: 8px;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--bone);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition: all 0.15s ease;
+  font-family: "Inter";
+}
+.btn:hover { border-color: var(--amber-dim); }
+.btn.primary { background: var(--amber); color: var(--ink); border-color: var(--amber); font-weight: 600; }
+.btn.primary:hover { background: #ffb838; }
+
+/* where to watch */
+.watch { margin-top: 14px; }
+.watch-label { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--slate-dim); margin-bottom: 8px; }
+.providers { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.provider { display: flex; align-items: center; gap: 6px; background: var(--ink-soft); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; font-size: 12px; color: var(--bone); text-decoration: none; }
+.provider img { width: 20px; height: 20px; border-radius: 4px; }
+.provider:hover { border-color: var(--amber-dim); }
+
+/* trailer */
+.trailer-wrap { margin-top: 14px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); aspect-ratio: 16/9; }
+.trailer-wrap iframe { width: 100%; height: 100%; border: none; display: block; }
+
+/* ---------- States: loading / error / empty ---------- */
+.state {
+  text-align: center;
+  padding: 50px 20px;
+  color: var(--slate);
+}
+.state .big {
+  font-family: "Bebas Neue", sans-serif;
+  font-size: 32px;
+  color: var(--bone);
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.state .retry { margin-top: 18px; }
+
+/* skeleton */
+.skeleton {
+  display: grid; grid-template-columns: 140px 1fr; gap: 18px;
+  background: var(--ink-card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 18px;
+}
+.sk { background: linear-gradient(90deg, var(--ink-soft) 25%, #241f19 50%, var(--ink-soft) 75%);
+  background-size: 200% 100%; animation: shimmer 1.3s infinite; border-radius: 6px; }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.sk-poster { width: 140px; height: 210px; }
+.sk-line { height: 14px; margin-bottom: 10px; }
+.sk-line.w70 { width: 70%; } .sk-line.w40 { width: 40%; } .sk-line.w90 { width: 90%; }
+
+/* cold-start banner */
+.banner {
+  background: rgba(245, 166, 35, 0.1);
+  border: 1px solid var(--amber-dim);
+  color: var(--bone);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 14px;
+  text-align: center;
+  margin-top: 20px;
+}
+
+/* ---------- Chai / support button ---------- */
+.chai {
+  position: fixed; right: 20px; bottom: 20px; z-index: 50;
+}
+.chai button {
+  background: var(--amber); color: var(--ink);
+  border: none; border-radius: 999px;
+  padding: 12px 18px; font-weight: 600; font-size: 14px;
+  cursor: pointer; box-shadow: var(--shadow);
+  display: flex; align-items: center; gap: 8px;
+  font-family: "Inter";
+  transition: transform 0.15s ease;
+}
+.chai button:hover { transform: translateY(-2px); }
+
+.modal-back { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+.modal {
+  background: var(--ink-card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 28px; max-width: 380px; width: 100%;
+  text-align: center; box-shadow: var(--shadow);
+}
+.modal h3 { font-family: "Fraunces", serif; font-size: 24px; margin-bottom: 8px; }
+.modal p { color: var(--slate); font-size: 14px; margin-bottom: 20px; }
+.amount-row { display: flex; gap: 8px; justify-content: center; margin-bottom: 18px; }
+.amount {
+  border: 1px solid var(--line); background: var(--ink-soft); color: var(--bone);
+  border-radius: 10px; padding: 12px 0; flex: 1; cursor: pointer; font-size: 15px;
+  font-family: "Inter"; transition: all 0.15s ease;
+}
+.amount.sel { border-color: var(--amber); background: rgba(245,166,35,0.12); color: var(--amber); font-weight: 600; }
+.modal .close { margin-top: 10px; color: var(--slate-dim); background: none; border: none; cursor: pointer; font-size: 13px; }
+
+/* ---------- Footer ---------- */
+.footer {
+  text-align: center; padding: 40px 20px 120px; color: var(--slate-dim); font-size: 12.5px;
+}
+.footer a { color: var(--slate); }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 640px) {
+  .card, .skeleton { grid-template-columns: 100px 1fr; gap: 12px; padding: 14px; }
+  .poster, .sk-poster { width: 100px; height: 150px; }
+  .movie-title { font-size: 20px; }
+  .search-row { flex-direction: column; }
+  .go { padding: 14px; min-width: 0; }
+  .hero { padding: 40px 0 24px; }
+  .chai button span.label { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; scroll-behavior: auto; }
+}

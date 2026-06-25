@@ -1,2 +1,9 @@
-tmdb_5000_movies.csv
+__pycache__/
+*.pyc
+.env
+.venv/
 venv/
+node_modules/
+dist/
+.DS_Store
+*.log

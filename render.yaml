@@ -1,0 +1,16 @@
+# render.yaml — deploys the FastAPI backend on Render free tier.
+# Push to GitHub, then on Render: New > Blueprint > pick this repo.
+services:
+  - type: web
+    name: cinematch-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: TMDB_API_KEY
+        sync: false   # set in Render dashboard
+      - key: OMDB_API_KEY
+        sync: false   # set in Render dashboard
+      - key: FRONTEND_ORIGIN
+        sync: false   # set to your Vercel URL once deployed

@@ -1,30 +1,71 @@
+"""build_index.py — Rebuild the semantic index from the TMDB 5000 dataset.
+
+Fixes vs the original:
+  - Keeps tmdb_id so we can enrich live (posters, ratings, trailers, where-to-watch)
+  - Embeds richer text: title + genres + tagline + overview (not overview alone)
+  - Normalizes nothing here; search.py normalizes once at load
+  - NO fake streaming data (the original used np.random — that was a lie)
+  - Carries year, rating, genres for instant display before live enrichment
+
+Run once locally:  python build_index.py
+Produces:  cleaned_movies.csv  +  movie_embeddings.npy
+"""
+import json
 import pandas as pd
 import numpy as np
 from sentence_transformers import SentenceTransformer
-import json
 
-print("1. Loading TMDB Dataset...")
-df = pd.read_csv("tmdb_5000_movies.csv")
-df = df[['title', 'overview', 'genres']].dropna(subset=['overview'])
+SOURCE = "tmdb_5000_movies.csv"
+MODEL = "all-MiniLM-L6-v2"
 
-def extract_genre(genre_str):
+
+def parse_genres(raw):
     try:
-        genres = json.loads(genre_str)
-        return genres[0]['name'] if genres else "Unknown"
-    except:
-        return "Unknown"
+        items = json.loads(raw)
+        return ", ".join(g["name"] for g in items) if items else ""
+    except Exception:
+        return ""
 
-df['genres'] = df['genres'].apply(extract_genre)
-df['streaming_on'] = np.random.choice(['Netflix', 'Hulu', 'Max', 'Prime'], len(df))
 
-print(f"2. Initializing local AI model to process {len(df)} movies...")
-model = SentenceTransformer('all-MiniLM-L6-v2')
+def main():
+    print("1. Loading TMDB dataset...")
+    df = pd.read_csv(SOURCE)
 
-print("3. Generating Vector Embeddings (This will take 1-3 minutes on your Mac)...")
-embeddings = model.encode(df['overview'].tolist(), show_progress_bar=True)
+    # Keep only rows with a usable overview
+    df = df[df["overview"].notna() & (df["overview"].str.strip() != "")].copy()
 
-print("4. Saving optimized files for the web app...")
-df.to_csv("cleaned_movies.csv", index=False)
-np.save("movie_embeddings.npy", embeddings)
+    print("2. Cleaning fields...")
+    df["genres"] = df["genres"].apply(parse_genres)
+    df["tmdb_id"] = df["id"].astype(int)
+    df["year"] = df["release_date"].astype(str).str[:4]
+    df["tmdb_rating"] = df["vote_average"]
+    df["tagline"] = df["tagline"].fillna("")
 
-print("✅ Success! You are ready to run the app.")
+    # Richer embedding text: title + genres + tagline + overview
+    df["embed_text"] = (
+        df["title"].fillna("") + ". "
+        + df["genres"].fillna("") + ". "
+        + df["tagline"].fillna("") + ". "
+        + df["overview"].fillna("")
+    ).str.strip()
+
+    keep = ["tmdb_id", "title", "overview", "genres", "year", "tmdb_rating"]
+    clean = df[keep].reset_index(drop=True)
+
+    print(f"3. Loading model '{MODEL}' and embedding {len(df)} movies...")
+    model = SentenceTransformer(MODEL)
+    embeddings = model.encode(
+        df["embed_text"].tolist(),
+        show_progress_bar=True,
+        batch_size=64,
+    )
+
+    print("4. Saving cleaned_movies.csv + movie_embeddings.npy ...")
+    clean.to_csv("cleaned_movies.csv", index=False)
+    np.save("movie_embeddings.npy", np.asarray(embeddings, dtype=np.float32))
+
+    print(f"Done. {len(clean)} movies indexed with real TMDB IDs. No fake data.")
+
+
+if __name__ == "__main__":
+    main()
