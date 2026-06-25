@@ -1,6 +1,6 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-sentence-transformers==3.0.1
-pandas==2.2.2
-numpy==1.26.4
-requests==2.32.3
+fastapi
+uvicorn[standard]
+sentence-transformers
+pandas>=2.2.3
+numpy
+requests
