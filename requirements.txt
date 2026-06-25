@@ -1,6 +1,8 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 fastapi
 uvicorn[standard]
 sentence-transformers
-pandas>=2.2.3
+torch
+pandas
 numpy
 requests
