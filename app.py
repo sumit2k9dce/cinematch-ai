@@ -4,9 +4,13 @@ Endpoints:
   GET  /health          → liveness + whether the index is loaded
   POST /search          → semantic search + live enrichment
   GET  /examples        → example vibe prompts
+  GET  /trending        → live TMDB trending (movies + TV, day/week)
+  GET  /discover        → live TMDB discovery by period + country + genre
+  GET  /genres          → genre list for the browse filter
 
 The heavy model + embeddings load once at startup. If enrichment APIs are
 down, search still returns semantic matches with whatever data we have.
+The browse endpoints are live TMDB passthrough and don't touch the index.
 """
 import os
 from contextlib import asynccontextmanager
@@ -21,6 +25,7 @@ from sentence_transformers import SentenceTransformer
 import config
 from core.search import SearchEngine
 from core.enrich import enrich_movie
+from core import browse
 
 # Loaded at startup
 STATE = {"engine": None, "error": None}
@@ -115,3 +120,59 @@ def search(req: SearchRequest):
                     pass  # keep the semantic result even if enrichment dies
 
     return {"ok": True, "results": matches, "query": query}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Browse — live TMDB passthrough (no index, always fresh)
+# ──────────────────────────────────────────────────────────────────────────
+
+@app.get("/trending")
+def trending(media: str = "all", window: str = "week", limit: int = 20):
+    """TMDB-native trending. media ∈ {all,movie,tv}; window ∈ {day,week}."""
+    try:
+        results = browse.trending(media=media, window=window, limit=limit)
+        return {"ok": True, "media": media, "window": window, "results": results}
+    except Exception as e:
+        return {"ok": False, "error": f"Trending unavailable: {e}", "results": []}
+
+
+@app.get("/discover")
+def discover(
+    media: str = "movie",
+    period: str = "month",
+    country: str = "",
+    genre: str = "",
+    page: int = 1,
+    limit: int = 20,
+):
+    """
+    Popularity-sorted discovery.
+    period ∈ {month,6months,year,all}; country = ISO code (e.g. IN); genre = TMDB genre id.
+    """
+    try:
+        results = browse.discover(
+            media=media,
+            period=period,
+            country=(country or None),
+            genre=(genre or None),
+            page=page,
+            limit=limit,
+        )
+        return {
+            "ok": True,
+            "media": media,
+            "period": period,
+            "country": country,
+            "results": results,
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Discover unavailable: {e}", "results": []}
+
+
+@app.get("/genres")
+def genres(media: str = "movie"):
+    """Genre list for the browse filter dropdown."""
+    try:
+        return {"ok": True, "media": media, "genres": browse.genre_list(media)}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "genres": []}
