@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { API_URL, REGIONS } from "./config";
 import MovieCard from "./MovieCard";
 import ChaiButton from "./ChaiButton";
+import Browse from "./Browse";
 
 const FALLBACK_EXAMPLES = [
   "A neon-drenched cyberpunk detective story with existential dread",
@@ -11,6 +12,8 @@ const FALLBACK_EXAMPLES = [
 ];
 
 export default function App() {
+  const [view, setView] = useState("match"); // match | browse
+
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("IN");
   const [examples, setExamples] = useState(FALLBACK_EXAMPLES);
@@ -38,6 +41,19 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  // Re-warm the backend whenever the tab regains focus or becomes visible.
+  useEffect(() => {
+    const warm = () =>
+      fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(5000) }).catch(() => {});
+    const onVis = () => { if (document.visibilityState === "visible") warm(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", warm);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", warm);
+    };
+  }, []);
+
   async function runSearch(q) {
     const vibe = (q ?? query).trim();
     if (!vibe) return;
@@ -46,7 +62,6 @@ export default function App() {
     setErrorMsg("");
     setWaking(false);
 
-    // If the request takes >4s, it's probably a cold start — show the banner
     const wakeTimer = setTimeout(() => setWaking(true), 4000);
 
     const attempt = async (timeoutMs) => {
@@ -61,15 +76,8 @@ export default function App() {
     };
 
     try {
-      let data;
-      try {
-        // First try: short timeout
-        data = await attempt(15000);
-      } catch (e) {
-        // Likely cold start — retry once with a long timeout
-        setWaking(true);
-        data = await attempt(60000);
-      }
+      setWaking(true);
+      const data = await attempt(90000);
 
       clearTimeout(wakeTimer);
       setWaking(false);
@@ -91,7 +99,7 @@ export default function App() {
       setWaking(false);
       setStatus("error");
       if (e.name === "TimeoutError") {
-        setErrorMsg("The server is taking too long to respond. It may be waking up — try again in a moment.");
+        setErrorMsg("The server is waking up and took too long. Give it ~30s and try again.");
       } else {
         setErrorMsg("Couldn't reach the server. Check your connection and try again.");
       }
@@ -114,98 +122,124 @@ export default function App() {
           Describe a mood, not a genre. We'll find the films that feel like it.
         </p>
 
-        <div className="searchcard">
-          <div className="search-row">
-            <textarea
-              className="vibe"
-              placeholder="e.g. a rain-soaked neo-noir where the detective is the real mystery…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={onKeyDown}
-              rows={1}
-            />
-            <button
-              className="go"
-              onClick={() => runSearch()}
-              disabled={status === "loading" || !query.trim()}
-            >
-              {status === "loading" ? "…" : "Match"}
-            </button>
-          </div>
+        {/* Mode tabs */}
+        <div className="tabs">
+          <button
+            className={`tab ${view === "match" ? "on" : ""}`}
+            onClick={() => setView("match")}
+          >
+            Match
+          </button>
+          <button
+            className={`tab ${view === "browse" ? "on" : ""}`}
+            onClick={() => setView("browse")}
+          >
+            Browse
+          </button>
         </div>
 
-        <div className="chips">
-          {examples.map((ex) => (
-            <button key={ex} className="chip" onClick={() => { setQuery(ex); runSearch(ex); }}>
-              {ex.length > 48 ? ex.slice(0, 46) + "…" : ex}
-            </button>
-          ))}
-        </div>
+        {view === "match" && (
+          <>
+            <div className="searchcard">
+              <div className="search-row">
+                <textarea
+                  className="vibe"
+                  placeholder="e.g. a rain-soaked neo-noir where the detective is the real mystery…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  rows={1}
+                />
+                <button
+                  className="go"
+                  onClick={() => runSearch()}
+                  disabled={status === "loading" || !query.trim()}
+                >
+                  {status === "loading" ? "…" : "Match"}
+                </button>
+              </div>
+            </div>
 
-        <div className="controls">
-          <span>Where to watch in</span>
-          <select value={region} onChange={(e) => setRegion(e.target.value)}>
-            {REGIONS.map((r) => (
-              <option key={r.code} value={r.code}>{r.label}</option>
-            ))}
-          </select>
-        </div>
+            <div className="chips">
+              {examples.map((ex) => (
+                <button key={ex} className="chip" onClick={() => { setQuery(ex); runSearch(ex); }}>
+                  {ex.length > 48 ? ex.slice(0, 46) + "…" : ex}
+                </button>
+              ))}
+            </div>
 
-        {waking && (
-          <div className="banner">
-            ☕ The server runs on a free tier and was asleep. Waking it up — this first
-            search may take ~30 seconds. Future searches are instant.
-          </div>
+            <div className="controls">
+              <span>Where to watch in</span>
+              <select value={region} onChange={(e) => setRegion(e.target.value)}>
+                {REGIONS.map((r) => (
+                  <option key={r.code} value={r.code}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {waking && (
+              <div className="banner">
+                ☕ The server runs on a free tier and was asleep. Waking it up — this first
+                search may take ~30 seconds. Future searches are instant.
+              </div>
+            )}
+          </>
         )}
       </header>
 
-      <main className="results">
-        {status === "loading" &&
-          Array.from({ length: 5 }).map((_, i) => (
-            <div className="skeleton" key={i}>
-              <div className="sk sk-poster" />
-              <div style={{ flex: 1 }}>
-                <div className="sk sk-line w70" />
-                <div className="sk sk-line w40" />
-                <div className="sk sk-line w90" />
-                <div className="sk sk-line w90" />
-                <div className="sk sk-line w40" />
+      {view === "match" ? (
+        <main className="results">
+          {status === "loading" &&
+            Array.from({ length: 5 }).map((_, i) => (
+              <div className="skeleton" key={i}>
+                <div className="sk sk-poster" />
+                <div style={{ flex: 1 }}>
+                  <div className="sk sk-line w70" />
+                  <div className="sk sk-line w40" />
+                  <div className="sk sk-line w90" />
+                  <div className="sk sk-line w90" />
+                  <div className="sk sk-line w40" />
+                </div>
+              </div>
+            ))}
+
+          {status === "done" && results.map((m, i) => <MovieCard key={`${m.tmdb_id}-${i}`} movie={m} />)}
+
+          {status === "error" && (
+            <div className="state">
+              <div className="big">Reel jammed.</div>
+              <p>{errorMsg}</p>
+              <div className="retry">
+                <button className="btn primary" onClick={() => runSearch(lastQuery.current)}>
+                  Try again
+                </button>
               </div>
             </div>
-          ))}
+          )}
 
-        {status === "done" && results.map((m, i) => <MovieCard key={`${m.tmdb_id}-${i}`} movie={m} />)}
-
-        {status === "error" && (
-          <div className="state">
-            <div className="big">Reel jammed.</div>
-            <p>{errorMsg}</p>
-            <div className="retry">
-              <button className="btn primary" onClick={() => runSearch(lastQuery.current)}>
-                Try again
-              </button>
+          {status === "empty" && (
+            <div className="state">
+              <div className="big">No match found.</div>
+              <p>{errorMsg}</p>
             </div>
-          </div>
-        )}
+          )}
 
-        {status === "empty" && (
-          <div className="state">
-            <div className="big">No match found.</div>
-            <p>{errorMsg}</p>
-          </div>
-        )}
-
-        {status === "idle" && (
-          <div className="state">
-            <div className="big">What do you feel like watching?</div>
-            <p>Describe the vibe, the atmosphere, the feeling — not the title. Tap an example above to see it work.</p>
-          </div>
-        )}
-      </main>
+          {status === "idle" && (
+            <div className="state">
+              <div className="big">What do you feel like watching?</div>
+              <p>Describe the vibe, the atmosphere, the feeling — not the title. Tap an example above to see it work.</p>
+            </div>
+          )}
+        </main>
+      ) : (
+        <main className="results">
+          <Browse />
+        </main>
+      )}
 
       <footer className="footer">
         <p>
-          Semantic search over 4,799 films · Data from TMDB & OMDb · Built with sentence embeddings.<br />
+          Semantic search over 4,799 films · Live trending & discovery via TMDB · Data from TMDB & OMDb.<br />
           This product uses the TMDB and OMDb APIs but is not endorsed or certified by either.
         </p>
       </footer>

@@ -176,3 +176,14 @@ def genres(media: str = "movie"):
         return {"ok": True, "media": media, "genres": browse.genre_list(media)}
     except Exception as e:
         return {"ok": False, "error": str(e), "genres": []}
+
+
+@app.get("/detail")
+def detail(media: str = "movie", id: int = 0, region: str = "US"):
+    """Full detail for inline card expand: trailer + where-to-watch (movies + TV)."""
+    if not id:
+        return {"ok": False, "error": "Missing id", "detail": None}
+    try:
+        return {"ok": True, "detail": browse.detail(media, id, region=region)}
+    except Exception as e:
+        return {"ok": False, "error": f"Detail unavailable: {e}", "detail": None}

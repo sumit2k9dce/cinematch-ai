@@ -151,6 +151,64 @@ def discover(media="movie", period="month", country=None, genre=None, page=1, li
     return [_normalize(it, media_hint=media) for it in data.get("results", [])][:limit]
 
 
+def detail(media, tmdb_id, region="US"):
+    """
+    Full detail for inline expand: trailer + where-to-watch + ratings.
+    One TMDB call via append_to_response. Works for both movies and TV.
+    """
+    media = "tv" if media == "tv" else "movie"
+    data = _get(
+        f"/{media}/{tmdb_id}",
+        {"append_to_response": "videos,watch/providers,external_ids"},
+    )
+
+    # Trailer: prefer an official YouTube trailer, else any YouTube clip.
+    vids = (data.get("videos") or {}).get("results", [])
+    yt = [v for v in vids if v.get("site") == "YouTube"]
+    trailer = next((v for v in yt if v.get("type") == "Trailer"), None) or (yt[0] if yt else None)
+
+    # Where-to-watch for the requested region (JustWatch data).
+    region_data = ((data.get("watch/providers") or {}).get("results") or {}).get(region) or {}
+    providers, seen = [], set()
+    for kind in ("flatrate", "rent", "buy"):
+        for p in region_data.get(kind, []):
+            name = p.get("provider_name")
+            if name and name not in seen:
+                seen.add(name)
+                providers.append({"name": name, "logo": _poster(p.get("logo_path"), "w92"), "type": kind})
+
+    runtime = data.get("runtime")
+    if not runtime and data.get("episode_run_time"):
+        runtime = data["episode_run_time"][0]
+
+    title = data.get("name") if media == "tv" else data.get("title")
+    date = data.get("first_air_date") if media == "tv" else data.get("release_date")
+
+    return {
+        "id": tmdb_id,
+        "media_type": media,
+        "title": title,
+        "year": (str(date)[:4] if date else ""),
+        "tagline": data.get("tagline", ""),
+        "overview": data.get("overview", ""),
+        "runtime": runtime,
+        "genres": [g.get("name") for g in data.get("genres", [])],
+        "vote_average": round(data.get("vote_average", 0) or 0, 1),
+        "vote_count": data.get("vote_count", 0) or 0,
+        "trailer_key": trailer.get("key") if trailer else None,
+        "trailer_url": (f"https://www.youtube.com/watch?v={trailer['key']}" if trailer else None),
+        "watch_providers": providers,
+        "watch_link": region_data.get("link"),
+        "watch_region": region,
+        "imdb_id": (data.get("external_ids") or {}).get("imdb_id"),
+        "imdb_url": (
+            f"https://www.imdb.com/title/{data['external_ids']['imdb_id']}/"
+            if (data.get("external_ids") or {}).get("imdb_id") else None
+        ),
+        "tmdb_url": f"https://www.themoviedb.org/{media}/{tmdb_id}",
+    }
+
+
 def genre_list(media="movie"):
     """Expose the genre map for the frontend filter dropdown."""
     gmap = _genres(media)
