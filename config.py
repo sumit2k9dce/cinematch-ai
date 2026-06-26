@@ -38,3 +38,6 @@ EXAMPLE_VIBES = [
 # --- Cache TTL for live API enrichment (seconds) ---
 ENRICH_CACHE_TTL = 60 * 60 * 24  # 24 hours
 POPULARITY_WEIGHT = 0.30
+
+LEXICAL_WEIGHT = 1.1
+POPULARITY_WEIGHT = 0.0
