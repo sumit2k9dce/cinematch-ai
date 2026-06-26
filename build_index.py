@@ -52,6 +52,15 @@ def build_embed_text(row):
     return " — ".join(p for p in parts if p and p.lower() != "nan")
 
 
+def build_tags(row):
+    """Clean keyword signal for hybrid lexical search: genres + keywords only,
+    no plot prose. Matching against this (not the overview) is what reliably
+    surfaces canonical films like Blade Runner for a 'cyberpunk detective' query."""
+    genres = _names(row["genres"])
+    keywords = _names(row["keywords"])
+    return ", ".join(genres + keywords)
+
+
 def main():
     print(f"[build] reading {SOURCE_CSV}")
     df = pd.read_csv(SOURCE_CSV)
@@ -63,6 +72,7 @@ def main():
     # Human-readable genres for display; rich blob for embedding.
     df["genres_display"] = df["genres"].apply(lambda j: ", ".join(_names(j)))
     df["embed_text"] = df.apply(build_embed_text, axis=1)
+    df["tags"] = df.apply(build_tags, axis=1)
     df["year"] = df["release_date"].apply(_year)
 
     # Popularity signal for re-ranking. vote_count is the most reliable proxy
@@ -79,6 +89,7 @@ def main():
         "year": df["year"].values,
         "vote_count": df["vote_count"].values,
         "vote_average": df["vote_average"].values,
+        "tags": df["tags"].values,
         "embed_text": df["embed_text"].values,
     }).reset_index(drop=True)
 
