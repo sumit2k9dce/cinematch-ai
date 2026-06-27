@@ -1,14 +1,17 @@
-import { useState, useEffect, useRef } from "react";
-import { API_URL, REGIONS } from "./config";
-import MovieCard from "./MovieCard";
+import { useState, useEffect } from "react";
+import { REGIONS } from "./config";
+import ResultCard from "./ResultCard";
 import ChaiButton from "./ChaiButton";
 import Browse from "./Browse";
+
+const SEARCH_URL = "/api/search"; // same-origin Vercel serverless function
 
 const FALLBACK_EXAMPLES = [
   "A neon-drenched cyberpunk detective story with existential dread",
   "Cozy small-town romance that feels like a warm hug",
   "Slow-burn psychological thriller where nothing is as it seems",
   "Mind-bending sci-fi that makes you question reality",
+  "A tense slow-burn prestige TV crime drama",
 ];
 
 export default function App() {
@@ -16,93 +19,56 @@ export default function App() {
 
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("IN");
-  const [examples, setExamples] = useState(FALLBACK_EXAMPLES);
 
+  const [intent, setIntent] = useState(null);
   const [results, setResults] = useState([]);
   const [status, setStatus] = useState("idle"); // idle | loading | done | error | empty
   const [errorMsg, setErrorMsg] = useState("");
-  const [waking, setWaking] = useState(false); // cold-start banner
-  const lastQuery = useRef("");
 
-  // Warm up backend + fetch examples on mount (handles Render cold start early)
+  // Rotating "thinking" copy so the 2-4s AI step feels intentional, not stuck.
+  const [tick, setTick] = useState(0);
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch(`${API_URL}/examples`, { signal: AbortSignal.timeout(8000) });
-        if (!cancelled && r.ok) {
-          const data = await r.json();
-          if (data.examples?.length) setExamples(data.examples);
-        }
-      } catch {
-        // backend may be cold; ignore — we have fallbacks
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  // Re-warm the backend whenever the tab regains focus or becomes visible.
-  useEffect(() => {
-    const warm = () =>
-      fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(5000) }).catch(() => {});
-    const onVis = () => { if (document.visibilityState === "visible") warm(); };
-    document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("focus", warm);
-    return () => {
-      document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("focus", warm);
-    };
-  }, []);
+    if (status !== "loading") return;
+    const id = setInterval(() => setTick((t) => t + 1), 1400);
+    return () => clearInterval(id);
+  }, [status]);
+  const THINKING = ["Reading the vibe…", "Searching the catalog…", "Curating the best matches…"];
 
   async function runSearch(q) {
     const vibe = (q ?? query).trim();
     if (!vibe) return;
-    lastQuery.current = vibe;
     setStatus("loading");
     setErrorMsg("");
-    setWaking(false);
-
-    const wakeTimer = setTimeout(() => setWaking(true), 4000);
-
-    const attempt = async (timeoutMs) => {
-      const res = await fetch(`${API_URL}/search`, {
+    setIntent(null);
+    setTick(0);
+    try {
+      const res = await fetch(SEARCH_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: vibe, region, top_k: 5, enrich: true }),
-        signal: AbortSignal.timeout(timeoutMs),
+        body: JSON.stringify({ query: vibe, region }),
+        signal: AbortSignal.timeout(60000),
       });
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      return res.json();
-    };
-
-    try {
-      setWaking(true);
-      const data = await attempt(90000);
-
-      clearTimeout(wakeTimer);
-      setWaking(false);
-
+      const data = await res.json();
       if (!data.ok) {
         setStatus("error");
         setErrorMsg(data.error || "Something went wrong.");
         return;
       }
+      setIntent(data.intent || null);
       if (!data.results?.length) {
         setStatus("empty");
-        setErrorMsg(data.message || "No strong matches found.");
+        setErrorMsg(data.message || "No strong matches — try a different vibe.");
         return;
       }
       setResults(data.results);
       setStatus("done");
     } catch (e) {
-      clearTimeout(wakeTimer);
-      setWaking(false);
       setStatus("error");
-      if (e.name === "TimeoutError") {
-        setErrorMsg("The server is waking up and took too long. Give it ~30s and try again.");
-      } else {
-        setErrorMsg("Couldn't reach the server. Check your connection and try again.");
-      }
+      setErrorMsg(
+        e.name === "TimeoutError"
+          ? "That took too long. Try again in a moment."
+          : "Couldn't reach the server. Check your connection and try again."
+      );
     }
   }
 
@@ -119,21 +85,14 @@ export default function App() {
         <div className="eyebrow">Semantic Film Discovery</div>
         <h1 className="title">CINEMATCH<span className="dot">.</span></h1>
         <p className="subtitle">
-          Describe a mood, not a genre. We'll find the films that feel like it.
+          Describe a mood, not a genre. We'll find the films — and shows — that feel like it.
         </p>
 
-        {/* Mode tabs */}
         <div className="tabs">
-          <button
-            className={`tab ${view === "match" ? "on" : ""}`}
-            onClick={() => setView("match")}
-          >
+          <button className={`tab ${view === "match" ? "on" : ""}`} onClick={() => setView("match")}>
             Match
           </button>
-          <button
-            className={`tab ${view === "browse" ? "on" : ""}`}
-            onClick={() => setView("browse")}
-          >
+          <button className={`tab ${view === "browse" ? "on" : ""}`} onClick={() => setView("browse")}>
             Browse
           </button>
         </div>
@@ -161,7 +120,7 @@ export default function App() {
             </div>
 
             <div className="chips">
-              {examples.map((ex) => (
+              {FALLBACK_EXAMPLES.map((ex) => (
                 <button key={ex} className="chip" onClick={() => { setQuery(ex); runSearch(ex); }}>
                   {ex.length > 48 ? ex.slice(0, 46) + "…" : ex}
                 </button>
@@ -176,43 +135,46 @@ export default function App() {
                 ))}
               </select>
             </div>
-
-            {waking && (
-              <div className="banner">
-                ☕ The server runs on a free tier and was asleep. Waking it up — this first
-                search may take ~30 seconds. Future searches are instant.
-              </div>
-            )}
           </>
         )}
       </header>
 
       {view === "match" ? (
         <main className="results">
-          {status === "loading" &&
-            Array.from({ length: 5 }).map((_, i) => (
-              <div className="skeleton" key={i}>
-                <div className="sk sk-poster" />
-                <div style={{ flex: 1 }}>
-                  <div className="sk sk-line w70" />
-                  <div className="sk sk-line w40" />
-                  <div className="sk sk-line w90" />
-                  <div className="sk sk-line w90" />
-                  <div className="sk sk-line w40" />
-                </div>
-              </div>
-            ))}
+          {status === "loading" && (
+            <div className="state">
+              <div className="big">{THINKING[tick % THINKING.length]}</div>
+              <p>Gemini is reading your vibe and pulling live matches from the catalog.</p>
+            </div>
+          )}
 
-          {status === "done" && results.map((m, i) => <MovieCard key={`${m.tmdb_id}-${i}`} movie={m} />)}
+          {status === "done" && (
+            <>
+              {intent && (
+                <div className="intent-strip">
+                  <div className="intent-label">We read this as</div>
+                  {intent.mood && <div className="intent-mood">{intent.mood}</div>}
+                  <div className="intent-chips">
+                    {(intent.keywords || []).slice(0, 8).map((k) => (
+                      <span className="ic" key={k}>{k}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="match-list">
+                {results.map((m) => (
+                  <ResultCard key={`${m.media_type}-${m.id}`} item={m} />
+                ))}
+              </div>
+            </>
+          )}
 
           {status === "error" && (
             <div className="state">
               <div className="big">Reel jammed.</div>
               <p>{errorMsg}</p>
               <div className="retry">
-                <button className="btn primary" onClick={() => runSearch(lastQuery.current)}>
-                  Try again
-                </button>
+                <button className="btn primary" onClick={() => runSearch(query)}>Try again</button>
               </div>
             </div>
           )}
@@ -239,8 +201,8 @@ export default function App() {
 
       <footer className="footer">
         <p>
-          Semantic search over 4,799 films · Live trending & discovery via TMDB · Data from TMDB & OMDb.<br />
-          This product uses the TMDB and OMDb APIs but is not endorsed or certified by either.
+          Vibe search powered by Gemini · Live catalog &amp; trending via TMDB.<br />
+          This product uses the TMDB API but is not endorsed or certified by TMDB.
         </p>
       </footer>
 
