@@ -22,6 +22,8 @@ export default function App() {
 
   const [intent, setIntent] = useState(null);
   const [results, setResults] = useState([]);
+  const [more, setMore] = useState([]);
+  const [seedTitle, setSeedTitle] = useState("");
   const [status, setStatus] = useState("idle"); // idle | loading | done | error | empty
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -40,6 +42,8 @@ export default function App() {
     setStatus("loading");
     setErrorMsg("");
     setIntent(null);
+    setMore([]);
+    setSeedTitle("");
     setTick(0);
     try {
       const res = await fetch(SEARCH_URL, {
@@ -61,6 +65,8 @@ export default function App() {
         return;
       }
       setResults(data.results);
+      setMore(data.more || []);
+      setSeedTitle(data.seed_title || "");
       setStatus("done");
     } catch (e) {
       setStatus("error");
@@ -166,6 +172,16 @@ export default function App() {
                   <ResultCard key={`${m.media_type}-${m.id}`} item={m} />
                 ))}
               </div>
+              {more.length > 0 && (
+                <>
+                  <div className="more-label">{seedTitle ? `More like ${seedTitle}` : "More like this"}</div>
+                  <div className="match-list">
+                    {more.map((m) => (
+                      <ResultCard key={`more-${m.media_type}-${m.id}`} item={m} />
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           )}
 
