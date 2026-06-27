@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, Fragment } from "react";
-import { API_URL, REGIONS } from "./config";
+import { REGIONS } from "./config";
 import "./browse.css";
 
-// Time windows. "trending" → TMDB-native (worldwide). "discover" → popularity by period + country.
+// "trending" -> TMDB-native (worldwide). "discover" -> popularity by period + country.
 const TABS = [
   { key: "day", label: "Today", kind: "trending" },
   { key: "week", label: "This Week", kind: "trending" },
@@ -23,8 +23,7 @@ export default function Browse() {
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState("idle"); // idle | loading | done | empty | error
   const [expanded, setExpanded] = useState(null);
-  const [details, setDetails] = useState({}); // id -> detail payload
-  const [waking, setWaking] = useState(false);
+  const [details, setDetails] = useState({});
 
   const current = TABS.find((t) => t.key === tab);
   const countryActive = current.kind === "discover";
@@ -33,64 +32,48 @@ export default function Browse() {
     setStatus("loading");
     setItems([]);
     setExpanded(null);
-    const wake = setTimeout(() => setWaking(true), 4000);
     try {
       let results = [];
       if (current.kind === "trending") {
-        const r = await fetch(
-          `${API_URL}/trending?media=${media}&window=${tab}&limit=20`,
-          { signal: AbortSignal.timeout(90000) }
-        );
+        const r = await fetch(`/api/trending?media=${media}&window=${tab}&limit=20`, {
+          signal: AbortSignal.timeout(30000),
+        });
         const d = await r.json();
         results = d.results || [];
       } else {
         const fetchOne = async (m) => {
-          const r = await fetch(
-            `${API_URL}/discover?media=${m}&period=${tab}&country=${country}&limit=20`,
-            { signal: AbortSignal.timeout(90000) }
-          );
+          const r = await fetch(`/api/discover?media=${m}&period=${tab}&country=${country}&limit=20`, {
+            signal: AbortSignal.timeout(30000),
+          });
           const d = await r.json();
           return d.results || [];
         };
         if (media === "all") {
           const [mv, tv] = await Promise.all([fetchOne("movie"), fetchOne("tv")]);
-          results = [...mv, ...tv]
-            .sort((a, b) => (b.vote_count || 0) - (a.vote_count || 0))
-            .slice(0, 20);
+          results = [...mv, ...tv].sort((a, b) => (b.vote_count || 0) - (a.vote_count || 0)).slice(0, 20);
         } else {
           results = await fetchOne(media);
         }
       }
-      clearTimeout(wake);
-      setWaking(false);
       setItems(results);
       setStatus(results.length ? "done" : "empty");
     } catch (e) {
-      clearTimeout(wake);
-      setWaking(false);
       setStatus("error");
     }
   }, [media, tab, country, current.kind]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   const toggleExpand = async (item) => {
-    if (expanded === item.id) {
-      setExpanded(null);
-      return;
-    }
+    if (expanded === item.id) { setExpanded(null); return; }
     setExpanded(item.id);
     if (!details[item.id]) {
       try {
-        const r = await fetch(
-          `${API_URL}/detail?media=${item.media_type}&id=${item.id}&region=${country || "US"}`,
-          { signal: AbortSignal.timeout(90000) }
-        );
+        const r = await fetch(`/api/detail?media=${item.media_type}&id=${item.id}&region=${country || "US"}`, {
+          signal: AbortSignal.timeout(30000),
+        });
         const d = await r.json();
-        if (d.ok) setDetails((prev) => ({ ...prev, [item.id]: d.detail }));
-        else setDetails((prev) => ({ ...prev, [item.id]: { error: true } }));
+        setDetails((prev) => ({ ...prev, [item.id]: d.ok ? d.detail : { error: true } }));
       } catch {
         setDetails((prev) => ({ ...prev, [item.id]: { error: true } }));
       }
@@ -102,11 +85,7 @@ export default function Browse() {
       <div className="browse-controls">
         <div className="seg">
           {MEDIA.map((m) => (
-            <button
-              key={m.k}
-              className={`seg-btn ${media === m.k ? "on" : ""}`}
-              onClick={() => setMedia(m.k)}
-            >
+            <button key={m.k} className={`seg-btn ${media === m.k ? "on" : ""}`} onClick={() => setMedia(m.k)}>
               {m.l}
             </button>
           ))}
@@ -114,11 +93,7 @@ export default function Browse() {
 
         <div className="pills">
           {TABS.map((t) => (
-            <button
-              key={t.key}
-              className={`pill ${tab === t.key ? "on" : ""}`}
-              onClick={() => setTab(t.key)}
-            >
+            <button key={t.key} className={`pill ${tab === t.key ? "on" : ""}`} onClick={() => setTab(t.key)}>
               {t.label}
             </button>
           ))}
@@ -129,37 +104,23 @@ export default function Browse() {
           {countryActive && (
             <select value={country} onChange={(e) => setCountry(e.target.value)}>
               {REGIONS.map((r) => (
-                <option key={r.code} value={r.code}>
-                  {r.label}
-                </option>
+                <option key={r.code} value={r.code}>{r.label}</option>
               ))}
             </select>
           )}
         </div>
       </div>
 
-      {waking && (
-        <div className="browse-banner">
-          ☕ Waking the server (free tier) — this first load may take ~30s.
-        </div>
-      )}
-
       {status === "loading" && (
         <div className="browse-grid">
           {Array.from({ length: 12 }).map((_, i) => (
-            <div className="browse-card sk" key={i}>
-              <div className="poster-sk" />
-            </div>
+            <div className="browse-card sk" key={i}><div className="poster-sk" /></div>
           ))}
         </div>
       )}
 
-      {status === "error" && (
-        <div className="browse-state">Couldn't reach the server. Try again in a moment.</div>
-      )}
-      {status === "empty" && (
-        <div className="browse-state">Nothing found for this filter. Try another period or country.</div>
-      )}
+      {status === "error" && <div className="browse-state">Couldn't reach the server. Try again in a moment.</div>}
+      {status === "empty" && <div className="browse-state">Nothing found for this filter. Try another period or country.</div>}
 
       {status === "done" && (
         <div className="browse-grid">
@@ -174,9 +135,7 @@ export default function Browse() {
                 ) : (
                   <div className="poster-none">{item.title}</div>
                 )}
-                <span className={`badge ${item.media_type}`}>
-                  {item.media_type === "tv" ? "TV" : "FILM"}
-                </span>
+                <span className={`badge ${item.media_type}`}>{item.media_type === "tv" ? "TV" : "FILM"}</span>
                 <div className="card-meta">
                   <div className="card-title">{item.title}</div>
                   <div className="card-sub">
@@ -199,13 +158,12 @@ export default function Browse() {
 }
 
 function DetailPanel({ detail, fallback, country }) {
-  if (!detail) {
-    return <div className="detail-loading">Loading trailer & where to watch…</div>;
-  }
+  if (!detail) return <div className="detail-loading">Loading trailer & where to watch…</div>;
   if (detail.error) {
     return (
       <div className="detail-loading">
-        Couldn't load extra details. <a href={`https://www.themoviedb.org/${fallback.media_type}/${fallback.id}`} target="_blank" rel="noreferrer">View on TMDB ↗</a>
+        Couldn't load extra details.{" "}
+        <a href={`https://www.themoviedb.org/${fallback.media_type}/${fallback.id}`} target="_blank" rel="noreferrer">View on TMDB ↗</a>
       </div>
     );
   }
@@ -234,7 +192,6 @@ function DetailPanel({ detail, fallback, country }) {
           {detail.genres?.length ? <span>{detail.genres.slice(0, 3).join(", ")}</span> : null}
         </div>
         <p className="detail-overview">{detail.overview}</p>
-
         <div className="watch">
           <div className="watch-label">Where to watch in {regionLabel}</div>
           {detail.watch_providers?.length ? (
