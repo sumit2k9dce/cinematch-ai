@@ -19,6 +19,7 @@ export default function App() {
 
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("IN");
+  const [mediaFilter, setMediaFilter] = useState("all");
 
   const [intent, setIntent] = useState(null);
   const [results, setResults] = useState([]);
@@ -49,7 +50,7 @@ export default function App() {
       const res = await fetch(SEARCH_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: vibe, region }),
+        body: JSON.stringify({ query: vibe, region, media: mediaFilter }),
         signal: AbortSignal.timeout(60000),
       });
       const data = await res.json();
@@ -125,6 +126,13 @@ export default function App() {
               </div>
             </div>
 
+            {status === "loading" && (
+              <div className="searching">
+                <div className="searching-bar"><span /></div>
+                <div className="searching-text">{THINKING[tick % THINKING.length]}</div>
+              </div>
+            )}
+
             <div className="chips">
               {FALLBACK_EXAMPLES.map((ex) => (
                 <button key={ex} className="chip" onClick={() => { setQuery(ex); runSearch(ex); }}>
@@ -134,6 +142,17 @@ export default function App() {
             </div>
 
             <div className="controls">
+              <div className="seg">
+                {[["all", "All"], ["movie", "Movies"], ["tv", "TV"]].map(([k, l]) => (
+                  <button
+                    key={k}
+                    className={`seg-btn ${mediaFilter === k ? "on" : ""}`}
+                    onClick={() => setMediaFilter(k)}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
               <span>Where to watch in</span>
               <select value={region} onChange={(e) => setRegion(e.target.value)}>
                 {REGIONS.map((r) => (
@@ -147,13 +166,6 @@ export default function App() {
 
       {view === "match" ? (
         <main className="results">
-          {status === "loading" && (
-            <div className="state">
-              <div className="big">{THINKING[tick % THINKING.length]}</div>
-              <p>Gemini is reading your vibe and pulling live matches from the catalog.</p>
-            </div>
-          )}
-
           {status === "done" && (
             <>
               {intent && (

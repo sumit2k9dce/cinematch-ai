@@ -71,8 +71,10 @@ function norm(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-// If the query is an exact title, return that film/show (most popular exact match).
-async function titleLookup(query) {
+// Find a film/show by name. exact=true requires the query to equal a title
+// (so "Blade Runner" matches but "neon cyberpunk" doesn't); exact=false takes
+// the most popular hit (used for a Gemini-extracted reference title).
+async function titleSearch(query, { exact }) {
   let d;
   try {
     d = await tmdb(`/search/multi`, { query, include_adult: "false" });
@@ -80,12 +82,38 @@ async function titleLookup(query) {
     return null;
   }
   const items = (d.results || []).filter((x) => x.media_type === "movie" || x.media_type === "tv");
-  const nq = norm(query);
-  const exact = items
-    .filter((x) => norm(x.title || x.name) === nq)
-    .sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
-  if (!exact.length) return null;
-  return normalize(exact[0], exact[0].media_type);
+  if (!items.length) return null;
+  if (exact) {
+    const nq = norm(query);
+    const ex = items
+      .filter((x) => norm(x.title || x.name) === nq)
+      .sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+    return ex.length ? normalize(ex[0], ex[0].media_type) : null;
+  }
+  const top = items.sort((a, b) => (b.popularity || 0) - (a.popularity || 0))[0];
+  return normalize(top, top.media_type);
+}
+
+// Build a "title / similar" response shared by exact-title and reference modes.
+async function similarResponse(seed, excludeLangs, modeLabel) {
+  let recs = await recommendationsFor(seed.media_type, seed.id);
+  if (excludeLangs.length) recs = recs.filter((c) => !excludeLangs.includes(c.original_language));
+  const seenT = new Set([`${seed.media_type}-${seed.id}`]);
+  recs = recs.filter((c) => {
+    const k = `${c.media_type}-${c.id}`;
+    if (seenT.has(k)) return false;
+    seenT.add(k);
+    return true;
+  });
+  recs.sort((a, b) => (b.vote_count || 0) - (a.vote_count || 0));
+  return {
+    ok: true,
+    mode: modeLabel,
+    seed_title: seed.title,
+    intent: { mood: `Like ${seed.title}`, keywords: seed.genres || [] },
+    results: [{ ...seed, reason: "The title your search references." }],
+    more: recs.slice(0, 14),
+  };
 }
 
 // TMDB's own "more like this" — recommendations + similar.
@@ -110,6 +138,7 @@ async function extractIntent(query) {
       min_year: { type: "integer" },
       max_year: { type: "integer" },
       mood: { type: "string" },
+      reference_title: { type: "string" },
     },
     required: ["media_type", "genres", "keywords"],
   };
@@ -118,7 +147,9 @@ async function extractIntent(query) {
     `- media_type: "movie", "tv", or "any" (use "any" unless the vibe clearly implies one).\n` +
     `- genres: 1-3 standard TMDB genres.\n` +
     `- keywords: 3-8 concrete TMDB-style keywords capturing the vibe (e.g. "cyberpunk","neo-noir","dystopia","slow burn"). Prefer specific over generic.\n` +
-    `- min_year/max_year: only if the vibe implies an era; otherwise omit.\n- mood: a short label.\n\n` +
+    `- min_year/max_year: only if the vibe implies an era; otherwise omit.\n` +
+    `- mood: a short label.\n` +
+    `- reference_title: if the user references a specific existing film or show to find similar titles to (e.g. "movies like Inception", "sholay like story"), put its canonical title here; otherwise leave empty.\n\n` +
     `Vibe: """${query}"""`;
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
@@ -134,7 +165,11 @@ async function extractIntent(query) {
   return JSON.parse(data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
 }
 
-// Two-pass discover: popularity (current/trending) + vote_count (canonical classics).
+// Discover candidates.
+// KEY FIX: genres are OR (pipe), not AND (comma). Blade Runner is Sci-Fi/Thriller/Drama
+// but NOT "Mystery", so an AND of 3 Gemini genres excluded it from every pass.
+// Pass A: the most distinctive keywords by vote count -> surfaces the canon.
+// Pass B: genre OR + keyword OR by popularity -> fresh / current matches.
 async function discoverFor(media, intent, opts) {
   const m = media === "tv" ? "tv" : "movie";
   const gmap = await genreMap(m);
@@ -142,22 +177,33 @@ async function discoverFor(media, intent, opts) {
   const kwIds = await resolveKeywords(intent.keywords);
   const dateField = m === "tv" ? "first_air_date" : "primary_release_date";
 
-  const base = { include_adult: "false", with_genres: genreIds.join(",") };
-  if (intent.min_year) base[`${dateField}.gte`] = `${intent.min_year}-01-01`;
-  if (intent.max_year) base[`${dateField}.lte`] = `${intent.max_year}-12-31`;
-  if (opts.region) base.watch_region = opts.region;
-  if (opts.includeLang) base.with_original_language = opts.includeLang;
-  const kw = kwIds.length ? { with_keywords: kwIds.join("|") } : {};
+  const common = { include_adult: "false" };
+  if (intent.min_year) common[`${dateField}.gte`] = `${intent.min_year}-01-01`;
+  if (intent.max_year) common[`${dateField}.lte`] = `${intent.max_year}-12-31`;
+  if (opts.region) common.watch_region = opts.region;
+  if (opts.includeLang) common.with_original_language = opts.includeLang;
 
-  const calls = [
-    tmdb(`/discover/${m}`, { ...base, ...kw, sort_by: "popularity.desc", "vote_count.gte": 30 }),
-    tmdb(`/discover/${m}`, { ...base, ...kw, sort_by: "vote_count.desc", "vote_count.gte": 300 }),
-  ];
+  const coreKw = kwIds.slice(0, 3).join("|"); // most distinctive (Gemini lists specific-first)
+  const allKw = kwIds.join("|");
+  const genresOR = genreIds.join("|");
+
+  const calls = [];
+  if (coreKw) {
+    calls.push(tmdb(`/discover/${m}`, { ...common, with_keywords: coreKw, sort_by: "vote_count.desc", "vote_count.gte": 400 }));
+  }
+  calls.push(
+    tmdb(`/discover/${m}`, {
+      ...common,
+      with_genres: genresOR,
+      ...(allKw ? { with_keywords: allKw } : {}),
+      sort_by: "popularity.desc",
+      "vote_count.gte": 50,
+    })
+  );
   let lists = await Promise.all(calls.map((p) => p.then((d) => d.results || []).catch(() => [])));
   let merged = [].concat(...lists);
-  // Fallback if keyword AND-pool is sparse: drop keywords, keep genres + canonical sort.
-  if (merged.length < 10 && kwIds.length) {
-    const d = await tmdb(`/discover/${m}`, { ...base, sort_by: "vote_count.desc", "vote_count.gte": 300 }).catch(() => ({ results: [] }));
+  if (merged.length < 10 && genresOR) {
+    const d = await tmdb(`/discover/${m}`, { ...common, with_genres: genresOR, sort_by: "vote_count.desc", "vote_count.gte": 300 }).catch(() => ({ results: [] }));
     merged = merged.concat(d.results || []);
   }
   return merged.map((x) => normalize(x, m));
@@ -215,31 +261,28 @@ export default async function handler(req, res) {
       return res.status(500).json({ ok: false, error: "Server missing GEMINI_API_KEY or TMDB_API_KEY" });
     }
 
-    // Title mode: user typed a specific film/show name -> return it + similar.
-    const seed = await titleLookup(query);
-    if (seed) {
-      let recs = await recommendationsFor(seed.media_type, seed.id);
-      if (excludeLangs.length) recs = recs.filter((c) => !excludeLangs.includes(c.original_language));
-      const seenT = new Set([`${seed.media_type}-${seed.id}`]);
-      recs = recs.filter((c) => {
-        const k = `${c.media_type}-${c.id}`;
-        if (seenT.has(k)) return false;
-        seenT.add(k);
-        return true;
-      });
-      recs.sort((a, b) => (b.vote_count || 0) - (a.vote_count || 0));
-      return res.status(200).json({
-        ok: true,
-        mode: "title",
-        seed_title: seed.title,
-        intent: { mood: `Like ${seed.title}`, keywords: (seed.genres || []) },
-        results: [{ ...seed, reason: "The title you searched for." }],
-        more: recs.slice(0, 14),
-      });
+    // Title mode: user typed an exact film/show name -> return it + similar.
+    const exactSeed = await titleSearch(query, { exact: true });
+    if (exactSeed) {
+      return res.status(200).json(await similarResponse(exactSeed, excludeLangs, "title"));
     }
 
     const intent = await extractIntent(query);
-    const wants = intent.media_type === "any" ? ["movie", "tv"] : [intent.media_type];
+
+    // Reference mode: "movies like X" / "X like story" -> X + its recommendations.
+    if (intent.reference_title && norm(intent.reference_title)) {
+      const refSeed = await titleSearch(intent.reference_title, { exact: false });
+      if (refSeed) {
+        return res.status(200).json(await similarResponse(refSeed, excludeLangs, "similar"));
+      }
+    }
+
+    // Explicit movie/tv filter from the UI overrides Gemini's guess.
+    const mediaParam = (body.media || "").toString().trim().toLowerCase();
+    let wants;
+    if (mediaParam === "movie" || mediaParam === "tv") wants = [mediaParam];
+    else if (mediaParam === "all") wants = ["movie", "tv"];
+    else wants = intent.media_type === "any" ? ["movie", "tv"] : [intent.media_type];
     const opts = { region, includeLang };
 
     let candidates = [];
