@@ -128,6 +128,32 @@ async function recommendationsFor(media, id) {
   return out.map((x) => normalize(x, media));
 }
 
+// Fetch a title's actual TMDB keywords (the real vibe signal).
+async function keywordsFor(media, id) {
+  try {
+    const d = await tmdb(`/${media}/${id}/keywords`);
+    const arr = d.keywords || d.results || [];
+    return arr.map((k) => norm(k.name));
+  } catch {
+    return [];
+  }
+}
+
+// Score a candidate by how many of the vibe's keywords it actually carries.
+function vibeScore(cand, intentKw) {
+  let overlap = 0;
+  for (const ik of intentKw) {
+    if ((cand._kw || []).some((ck) => ck === ik || ck.includes(ik) || ik.includes(ck))) overlap++;
+  }
+  const pop = Math.log10((cand.vote_count || 0) + 10);
+  return overlap * 10 + pop;
+}
+
+function strip(c) {
+  const { _kw, _score, ...rest } = c;
+  return rest;
+}
+
 async function extractIntent(query) {
   const schema = {
     type: "object",
@@ -231,8 +257,9 @@ async function curate(query, candidates, n) {
   const prompt =
     `A viewer wants: """${query}"""\n\n` +
     `From the candidates below, choose the ${n} best matches for the VIBE (mood, tone, atmosphere). ` +
-    `Order best-first. Prioritize genre-defining or iconic titles for this vibe as well as strong matches — ` +
-    `don't skip a landmark film just because it's older. For each, give a reason of at most 12 words. ` +
+    `Order best-first. A film must genuinely fit the vibe — do NOT include a film merely because it is ` +
+    `famous or high-rated if it does not match the specific mood and setting. Keep genre-defining titles ` +
+    `that DO fit (don't skip a landmark film for being old). For each, give a reason of at most 12 words. ` +
     `Only use ids from the list.\n\nCandidates:\n${JSON.stringify(slim)}`;
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
@@ -297,8 +324,17 @@ export default async function handler(req, res) {
       seen.add(k);
       return true;
     });
-    // order: blend of popularity (current) and recognizability (vote_count)
+    // order by fame first, then cap, so we only enrich a bounded set
     candidates.sort((a, b) => (b.vote_count || 0) - (a.vote_count || 0));
+    candidates = candidates.slice(0, 24);
+
+    // PRECISION: re-rank by actual keyword overlap with the vibe, not by fame.
+    const intentKw = (intent.keywords || []).map(norm).filter(Boolean);
+    if (intentKw.length && candidates.length) {
+      await Promise.all(candidates.map(async (c) => { c._kw = await keywordsFor(c.media_type, c.id); }));
+      candidates.forEach((c) => { c._score = vibeScore(c, intentKw); });
+      candidates.sort((a, b) => b._score - a._score);
+    }
 
     if (!candidates.length) {
       return res.status(200).json({ ok: true, intent, results: [], more: [], message: "No matches — try a different vibe." });
@@ -312,18 +348,21 @@ export default async function handler(req, res) {
         .map((p) => {
           const c = byId.get(`${p.media}-${p.id}`) || byId.get(`movie-${p.id}`) || byId.get(`tv-${p.id}`);
           if (c) picksIds.add(`${c.media_type}-${c.id}`);
-          return c ? { ...c, reason: p.reason } : null;
+          return c ? { ...strip(c), reason: p.reason } : null;
         })
         .filter(Boolean)
         .slice(0, 8);
-      if (!results.length) results = candidates.slice(0, 8);
+      if (!results.length) results = candidates.slice(0, 8).map(strip);
     } catch {
-      results = candidates.slice(0, 8);
+      results = candidates.slice(0, 8).map(strip);
     }
     if (!picksIds.size) results.forEach((c) => picksIds.add(`${c.media_type}-${c.id}`));
 
     // "More like this": next candidates not already picked
-    const more = candidates.filter((c) => !picksIds.has(`${c.media_type}-${c.id}`)).slice(0, 12);
+    const more = candidates
+      .filter((c) => !picksIds.has(`${c.media_type}-${c.id}`))
+      .slice(0, 12)
+      .map(strip);
 
     return res.status(200).json({ ok: true, intent, results, more });
   } catch (e) {
